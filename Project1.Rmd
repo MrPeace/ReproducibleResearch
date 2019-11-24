@@ -1,5 +1,10 @@
 ---
-title: "Untitled"
+title: "Reproducible Research"
+subtitle: "Project One"
+author: 
+- "Submitted by: Pete Ostergren"
+- "----------------------------------------"
+date: "11/20/2019"
 output: html_document
 ---
 
@@ -7,22 +12,98 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## 1. Load data
+Unzip data to obtain a csv file.
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r unzip, cache=TRUE}
+unzip("data/repdata_data_activity.zip", exdir = "data")
+activity <- read.csv("data/activity.csv", stringsAsFactors=FALSE)
 ```
 
-## Including Plots
+## 2. Histogram
+Use dplyr.
 
-You can also embed plots, for example:
+```{r daily_total,message=FALSE}
+require(dplyr)
+total_day <- activity %>% group_by(date) %>%summarise(total_steps=sum(steps,na.rm=TRUE),na=mean(is.na(steps)))
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+total_day <- filter(total_day, na < 1)
+hist(total_day$total_steps,col="orange",breaks=20,main="Total steps per day",xlab="Steps per day")
+abline(v=median(total_day$total_steps),lty=3, lwd=2, col="black")
+legend(legend="median","topright",lty=3,lwd=2,bty = "n")
+```
+## 3. Mean and median number of steps taken each day
+
+```{r summary}
+mean_steps <- mean(total_day$total_steps,na.rm=TRUE)
+median_steps <- median(total_day$total_steps,na.rm=TRUE)
+```
+## 4. Time series plot of the average number of steps taken
+
+```{r daily, fig.width=12}
+library(dplyr,quietly = TRUE)
+daily_patterns <- activity %>% group_by(interval) %>% summarise(average=mean(steps,na.rm=TRUE))
+plot(x = 1:nrow(daily_patterns),y = daily_patterns$average,type = "l",
+     col = "red", xaxt = "n",xlab="Intervals", 
+     ylab = "Average for given interval across all days")
+axis(1,labels=daily_patterns$interval[seq(1,288,12)],
+     at = seq_along(daily_patterns$interval)[seq(1,288,12)])
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+## 5. The 5-minute interval containing the max avg number of steps
+
+```{r daily2}
+max <- filter(daily_patterns,average==max(average))
+```
+
+Interval **"`r max$interval`"** contains on average the maximum number of steps (**`r round(max$average,2)` steps**).
+
+
+## 6. Impute missing data
+
+```{r na_imputing, cache=TRUE}
+without_NAs <- numeric(nrow(activity))
+for (i in 1:nrow(activity))
+{
+        if (is.na(activity[i,"steps"])==TRUE)
+            {
+                    without_NAs[i]<-filter(daily_patterns,interval==activity[i,"interval"]) %>% select(average)
+            } 
+        else
+            {
+                    without_NAs[i]<-activity[i,"steps"]
+            }
+                    
+}
+activity_without_NAs<-mutate(activity,steps_no_NAs=without_NAs)
+head(activity_without_NAs)
+```
+
+## 7. Histogram: Total number of steps taken each day with missing values imputed
+
+```{r histogram_no_NAs}
+total_day_noNAs <- activity_without_NAs %>% mutate(steps_no_NAs=as.numeric(steps_no_NAs)) %>% group_by(date) %>% summarise(total_steps=sum(steps_no_NAs))
+hist(total_day_noNAs$total_steps,col="blue",breaks=20,main="Total steps per day",xlab="Steps per day")
+abline(v=median(total_day$total_steps),lty=3, lwd=2, col="black")
+legend(legend="median","topright",lty=3,lwd=2,bty = "n")
+```
+
+## 8. Panel plot comparing the average number of steps taken per 5-minute interval with weekday vs weekend
+
+```{r weekday}
+library(lubridate)
+is_weekday <-function(date){
+        if(wday(date)%in%c(1,7)) result<-"weekend"
+        else
+                result<-"weekday"
+        result
+}
+activity_without_NAs <- mutate(activity_without_NAs,date=ymd(date)) %>% mutate(day=sapply(date,is_weekday))
+table(activity_without_NAs$day)
+```
+```{r weekend_comparison, cache=TRUE, fig.width=10}
+library(ggplot2)
+daily_patterns <- activity_without_NAs %>% mutate(day=factor(day,levels=c("weekend","weekday")),steps_no_NAs=as.numeric(steps_no_NAs)) %>% group_by(interval,day) %>% summarise(average=mean(steps_no_NAs))
+qplot(interval,average,data=daily_patterns,geom="line",facets=day~.)
+```
